@@ -371,6 +371,9 @@ class Scheduler(SchedulerInterface):
         self.dp_prefill_delayer = self.scheduler_config.dp_prefill_delayer
         # Whether a step scheduled prefill since the delayer last looked.
         self.ran_prefill = False
+        # DP prefill cost balancing: the delayer's cap on this rank's prefill
+        # tokens in the next step, None for no cap.
+        self.dp_prefill_token_cap: int | None = None
         self.scheduler_reserve_full_isl = (
             self.scheduler_config.scheduler_reserve_full_isl
         )
@@ -644,6 +647,9 @@ class Scheduler(SchedulerInterface):
             and (self.dp_prefill_delayer or not self.prefill_capacity_bound)
             and any(not r.is_prefill_chunk for r in self.running)
         )
+        # Prefill tokens this rank may still schedule this step (DP prefill cost
+        # balancing), None for no limit beyond the token budget.
+        prefill_left = None if defer_prefills else self.dp_prefill_token_cap
 
         # `long_prefill_token_threshold` exists to stop a long prefill from
         # starving other requests of the token budget. When it is the only
@@ -718,6 +724,12 @@ class Scheduler(SchedulerInterface):
             num_new_tokens = min(
                 num_new_tokens, token_budget, input_budget - draft_slots
             )
+            if prefill_left is not None and request.is_prefill_chunk:
+                num_new_tokens = min(num_new_tokens, prefill_left)
+                if num_new_tokens <= 0:
+                    req_index += 1
+                    continue
+                prefill_left -= num_new_tokens
 
             # Make sure the input position does not exceed the max model len.
             # This is necessary when using spec decoding.
@@ -1175,6 +1187,14 @@ class Scheduler(SchedulerInterface):
                         break
 
                     num_new_tokens = min(num_new_tokens, request_token_budget)
+                    if (
+                        prefill_left is not None
+                        and num_computed_tokens < request.num_tokens - 1
+                    ):
+                        if prefill_left <= 0:
+                            break
+                        num_new_tokens = min(num_new_tokens, prefill_left)
+                        prefill_left -= num_new_tokens
                     assert num_new_tokens > 0
 
                     # Apply Mamba alignment before encoder caps.
