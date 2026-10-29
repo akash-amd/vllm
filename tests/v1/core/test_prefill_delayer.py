@@ -106,11 +106,11 @@ def test_local_state():
     )
     # 40 chunk tokens + 30 + 80 waiting, capped at the budget; the deferred
     # request does not count.
-    assert local_state(scheduler, BUDGET) == [1, BUDGET, 2, 1, 1, 1]
+    assert local_state(scheduler, BUDGET) == [1, BUDGET, 2, 1, 1, 1, 0]
     assert not scheduler.ran_prefill
 
     scheduler.running, scheduler.waiting = [_Req(9, 8)], []
-    assert local_state(scheduler, BUDGET) == [0, 0, 1, 0, 0, 0]
+    assert local_state(scheduler, BUDGET) == [0, 0, 1, 0, 0, 0, 0]
 
 
 def test_scheduler_hold_skips_rank_without_local_decodes():
