@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 import torch
 import torch.distributed as dist
 
+from vllm.distributed.utils import cpu_all_reduce_
 from vllm.logger import init_logger
 
 logger = init_logger(__name__)
@@ -192,7 +193,7 @@ class PrefillDelayer:
             if state[0]:
                 own_tokens, own_cost = prefill_estimate(scheduler, self.token_budget)
             self._buf[NUM_STATE + self._rank] = int(own_cost)
-        dist.all_reduce(self._buf, op=dist.ReduceOp.SUM, group=dp_group)
+        cpu_all_reduce_(self._buf, dp_group)
         reduced = self._buf.tolist()
         fire, reason = self.decide(*reduced[:NUM_STATE])
         cap = None
